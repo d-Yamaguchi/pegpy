@@ -10,7 +10,7 @@ setup(
     author = 'KuramitsuLab',
     description = 'Nez Parser for Python',
     install_requires = ['setuptools'],
-	packages = ['pegpy', 'pegpy.gparser', 'pegpy.origami'],
+	packages = ['pegpy', 'pegpy.gparser', 'pegpy.origami', 'pegpy.tbcnn'],
 	package_data = {'pegpy': ['grammar/*.tpeg']},
 	entry_points = {
 		'console_scripts': [
