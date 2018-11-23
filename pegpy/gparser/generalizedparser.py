@@ -1,6 +1,8 @@
 from pegpy.parser import *
 import functools
 
+check_header = [1] * 0xc0 + [2] * (0xe0 - 0xc0) + [3] * (0xf0 - 0xe0) + [4] * (0xff - 0xf0 + 1)
+
 # generalized parse function
 
 def mresult(pf):
@@ -16,14 +18,84 @@ def mresult(pf):
 def union(px, old, pos, mtree, mlink):
     result = {}
     new = px.result
+    umtree = lambda tag, child: mtree(tag, px.inputs, pos, px.pos, child)
     for pos in set(old) & set(new):
-        result[pos] = mtree("Ambiguity", px.inputs, pos, px.pos, mlink("", new[pos], mlink("", old[pos], None)))
+        result[pos] = mlink('', umtree('?', mlink('', umtree('?l', new[pos]), mlink('', umtree('?r', old[pos]), None))), None)
     for pos in set(old) - set(new):
         result[pos] = old[pos]
     for pos in set(new) - set(old):
         result[pos] = new[pos]
     return result
 
+def p_GTrue(px): return True
+
+
+def emit_char(c):
+    def curry(px):
+        if px.pos < px.length and px.inputs[px.pos] == c:
+            px.pos += 1
+            px.headpos = max(px.pos, px.headpos)
+            return True
+        return False
+    return curry
+
+# Str
+
+def emit_multi(s, slen):
+    def curry(px):
+        if px.inputs.startswith(s, px.pos):
+            px.pos += slen
+            px.headpos = max(px.pos, px.headpos)
+            return True
+        return False
+    return curry
+
+
+pf_char = {}
+
+
+def bits(n, offset=0):
+    def curry(px):
+        if px.pos < px.length:
+            shift = px.inputs[px.pos] - offset
+            if shift >= 0 and (n & (1 << shift)) != 0:
+                px.pos += 1
+                px.headpos = max(px.pos, px.headpos)
+                return True
+        return False
+    return curry
+
+
+def multi_bits(n, offset=0):
+    def curry(px):
+        if px.pos < px.length:
+            move = px.pos + check_header[px.inputs[px.pos]]
+            shift = ord(str(px.inputs[px.pos:move], 'utf-8')) - offset
+            if shift >= 0 and (n & (1 << shift)) != 0:
+                px.pos = move
+                px.headpos = max(px.pos, px.headpos)
+                return True
+        return False
+    return curry
+
+
+def isCharRange(c, ranges, chars):
+    for r in ranges:
+        if r[0] <= c and c <= r[1]:
+            return True
+    for c2 in chars:
+        if c == c2:
+            return True
+    return False
+
+#GAny
+
+def p_GAny(px):
+    if px.pos < px.length:
+        px.pos += check_header[px.inputs[px.pos]]
+        px.headpos = max(px.pos, px.headpos)
+        return True
+    return False
 
 #GChar
 
@@ -50,12 +122,14 @@ def emit_GByte(pe):
 
 def emit_GByteRange(pe):
     n = 0
+    offset = min(list(map(lambda c: ord(c), pe.chars)) + [ord(x[0]) for x in pe.ranges])
     for c in pe.chars:
-        n |= (1 << ord(c))
+        n |= (1 << (ord(c) - offset))
     for r in pe.ranges:
-        for c in range(ord(r[0]), ord(r[1])+1):
+        for c in range(ord(r[0])-offset, ord(r[1])+1-offset):
             n |= (1 << c)
-    return mresult(bits(n))
+    return mresult(bits(n, offset)) if offset < 0x80 and n < (1 << (0x80 - offset)) else mresult(multi_bits(n, offset))
+
 
 def emit_GCharRange(pe):
     chars = pe.chars
@@ -68,7 +142,7 @@ def emit_GCharRange(pe):
             return True
         return False
     return mresult(curry)
-        
+
 # GSeq
 
 def gseq2(left, right, mtree, mlink):
@@ -101,8 +175,6 @@ def gseq(ls, mtree, mlink):
                 px.ast = ast
                 if p(px):
                     result = union(px, result, pos, mtree, mlink)
-                else:
-                    return False
             px.result = result
             result = {}
         return False if len(px.result) == 0 else True
@@ -176,7 +248,7 @@ def alt(ls, mtree, mlink):
         for p in ls:
             pos = px.pos
             ast = px.ast
-            if not p(px): 
+            if not p(px):
                 px.pos = pos
                 px.ast = ast
                 continue
@@ -239,8 +311,11 @@ def gnot(pf):
         if not pf(px):
             px.pos = pos
             px.ast = ast
-            px.result = {pos:ast}
+            px.result = {pos: ast}
             return True
+        px.pos = pos
+        px.ast = ast
+        px.result = {}
         return False
     return curry
 
@@ -260,6 +335,15 @@ def gand(pf):
 
 def emit_GAnd(pe, emit):
     return gand(emit(pe.inner))
+
+# Ref
+def emit_GRef(ref: Ref, memo: dict, emit):
+    key = ref.uname()
+    if not key in memo:
+        memo[key] = lambda px: memo[key](px)
+        memo[key] = emit(ref.deref())
+        #memo[key] = emit_trace(ref, emit(ref.deref()))
+    return memo[key]
 
 
 #GTree

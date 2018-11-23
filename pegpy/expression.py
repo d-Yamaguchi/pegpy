@@ -24,10 +24,11 @@ class ParsingExpression(object):
         return And(self)
     def setpeg(self, peg):
         if hasattr(self, 'inner'):
-            self.inner.setpeg(peg)
+            self.inner = self.inner.setpeg(peg)
         if hasattr(self, 'right'):
-            self.left.setpeg(peg)
-            self.right.setpeg(peg)
+            self.left = self.left.setpeg(peg)
+            self.right = self.right.setpeg(peg)
+        return self
     def deref(self):
         return self.inner
     @classmethod
@@ -75,8 +76,12 @@ def lfold(ltag,e):
         return FoldAs(ltag, e.name, ParsingExpression.new(e.inner))
     return e
 
-def grouping(e, f): return '(' + str(e) + ')' if f(e) else str(e)
-def inSeq(e): return isinstance(e, Ore) or isinstance(e, Alt)
+def grouping(e, f):
+    return '(' + str(e) + ')' if f(e) else str(e)
+
+def inSeq(e):
+    return isinstance(e, Ore) or isinstance(e, Alt)
+
 def inUnary(e):
     return (isinstance(e, Ore) and e.right != EMPTY) \
            or isinstance(e, Seq) or isinstance(e, Alt) \
@@ -132,36 +137,6 @@ class Any(ParsingExpression):
     def __str__(self):
         return '.'
 ANY = Any()
-
-#class Ref(ParsingExpression, ast.SourcePosition):
-class Ref(ParsingExpression):
-    __slots__ = ['peg', 'name', 'pos3']
-    def __init__(self, name, peg = None):
-        self.name = name
-        self.peg = peg
-        self.pos = None
-    def __str__(self):
-        return str(self.name)
-
-    def uname(self):
-        return self.name if self.name.find(':') > 0 else self.peg.namespace() + ':' + self.name
-
-    def setpeg(self, peg):
-        self.peg = peg
-
-    def isNonTerminal(self):
-        return self.peg.isDefined(self.name)
-
-    def deref(self):
-        return self.peg[self.name].inner
-
-    def prop(self):
-        return getattr(self.peg, self.name)
-    def getmemo(self,prefix):
-        return self.peg.getmemo(prefix+self.name)
-    def setmemo(self,prefix,value):
-        return self.peg.setmemo(prefix+self.name,value)
-
 
 class Seq(ParsingExpression):
     __slots__ = ['left', 'right']
@@ -299,58 +274,15 @@ class Detree(ParsingExpression):
 
 ## Symbol
 
-# @scope(e)
-class Scope(ParsingExpression):
-    __slots__ = ['inner']
-    def __init__(self, inner):
+class State(ParsingExpression):
+    __slots__ = ['func', 'name', 'inner', 'opt']
+    def __init__(self, func, inner, opt = None):
+        self.func = func
         self.inner = ParsingExpression.new(inner)
+        self.name = str(self.inner) if opt is None else opt
+        self.opt = opt
     def __str__(self):
-        return  '@scope(' + str(self.inner) + ')'
-
-# @symbol(A)
-class Symbol(ParsingExpression):
-    __slots__ = ['name', 'inner']
-    def __init__(self, name, inner):
-        self.name = str(inner) if name is None else name
-        self.inner = ParsingExpression.new(inner)
-    def __str__(self):
-        return  '@symbol(' + str(self.inner) + ')'
-
-# @match(A)
-class Match(ParsingExpression):
-    __slots__ = ['name', 'inner']
-    def __init__(self, name, inner):
-        self.name = str(inner) if name is None else name
-        self.inner = ParsingExpression.new(inner)
-    def __str__(self):
-        return  '@match(' + str(self.inner) + ')'
-
-# @exists(A)
-class Exists(ParsingExpression):
-    __slots__ = ['name', 'inner']
-    def __init__(self, name, inner):
-        self.name = str(inner) if name is None else name
-        self.inner = ParsingExpression.new(inner)
-    def __str__(self):
-        return  '@exists(' + str(self.inner) + ')'
-
-# @equals(A)
-class Equals(ParsingExpression):
-    __slots__ = ['name', 'inner']
-    def __init__(self, name, inner):
-        self.name = str(inner) if name is None else name
-        self.inner = ParsingExpression.new(inner)
-    def __str__(self):
-        return  '@contains(' + str(self.inner) + ')'
-
-# @contains(A)
-class Contains(ParsingExpression):
-    __slots__ = ['name', 'inner']
-    def __init__(self, name, inner):
-        self.name = str(inner) if name is None else name
-        self.inner = ParsingExpression.new(inner)
-    def __str__(self):
-        return  '@contains(' + str(self.inner) + ')'
+        return  self.func + '(' + str(self.inner) + ')'
 
 # @on(flag, e)
 class On(ParsingExpression):
@@ -389,6 +321,225 @@ class Meta(ParsingExpression):
     def __str__(self):
         arg = ', ' + repr(self.opt) if self.opt != None else ''
         return self.tag + '(' + str(self.inner) + arg + ')'
+
+# Rule
+
+#class Ref(ParsingExpression, ast.SourcePosition):
+
+class Ref(ParsingExpression):
+    __slots__ = ['peg', 'name', 'pos3']
+    def __init__(self, name, peg = None):
+        self.name = name
+        self.peg = peg
+        self.pos3 = None
+    def __str__(self):
+        return str(self.name)
+
+    def uname(self):
+        return self.name if self.name.find(':') > 0 else self.peg.namespace() + ':' + self.name
+
+    def setpeg(self, peg):
+        self.peg = peg
+        if self.name[0].islower() and self.name in peg:  # inlining
+            # print('@inline', self.name)
+            return peg[self.name].inner
+        return self
+
+    def isNonTerminal(self):
+        return self.name in self.peg
+
+    def deref(self):
+        return self.peg[self.name].inner
+
+    def prop(self):
+        return getattr(self.peg, self.name)
+
+    def getmemo(self, prefix: str, default = None):
+        if self.name in self.peg:
+            rule = self.peg[self.name]
+            if hasattr(rule, prefix):
+                return getattr(rule,prefix)
+            return None
+        else:
+            return default
+
+    def setmemo(self, prefix, value):
+        rule = self.peg[self.name]
+        setattr(rule, prefix, value)
+
+class Rule(Ref):
+    __slots__ = ['peg', 'name', 'inner', 'pos3']
+    def __init__(self, peg, name, inner):
+        super().__init__(name, peg)
+        self.inner = ParsingExpression.new(inner)
+        self.checked = False
+
+    def __str__(self):
+        return self.name + ' = ' + str(self.inner)
+
+    def deref(self):
+        return self.inner
+
+
+## Properties
+
+def addmethod(*ctags):
+    def _match(func):
+        name = ctags[-1]
+        for ctag in ctags[:-1]:
+            setattr(ctag, name, func)
+        return func
+    return _match
+
+def isAlwaysConsumed(pe: ParsingExpression):
+    if not hasattr(Char, 'isAlwaysConsumed'):
+        method = 'isAlwaysConsumed'
+        @addmethod(Char, Any, Range, method)
+        def consumed(pe): return True
+
+        @addmethod(Many, Not, And, Empty, method)
+        def consumed(pe): return False
+
+        @addmethod(Many1, LinkAs, TreeAs, FoldAs, Detree, Meta, method)
+        def unary(pe):
+            return isAlwaysConsumed(pe.inner)
+
+        @addmethod(Seq, method)
+        def seq(pe):
+            return isAlwaysConsumed(pe.left) or isAlwaysConsumed(pe.right)
+
+        @addmethod(Ore, Alt, method)
+        def ore(pe):
+            return isAlwaysConsumed(pe.left) and isAlwaysConsumed(pe.right)
+
+        @addmethod(State, method)
+        def state(pe):
+            if pe.func == '@exists': return False
+            return isAlwaysConsumed(pe.inner)
+
+        @addmethod(Ref, method)
+        def memo(pe: Ref):
+            memoed = pe.getmemo('nonnull', True)
+            if memoed == None:
+                pe.setmemo('nonnull', True)
+                memoed = isAlwaysConsumed(pe.deref())
+                pe.setmemo('nonnull', memoed)
+            return memoed
+
+    return pe.isAlwaysConsumed()
+
+## TreeState
+from enum import Enum
+
+class T(Enum):
+    Unit = 0
+    Tree = 1
+    Mut = 2
+    Fold = 3
+
+def treeState(pe):
+    if not hasattr(Char, 'treeState'):
+        method = 'treeState'
+        @addmethod(Empty, Char, Any, Range, Not, Detree, method)
+        def stateUnit(pe):
+            return T.Unit
+
+        @addmethod(TreeAs, method)
+        def stateTree(pe):
+            return T.Tree
+
+        @addmethod(LinkAs, method)
+        def stateMut(pe):
+            return T.Mut
+
+        @addmethod(FoldAs, method)
+        def stateFold(pe):
+            return T.Fold
+
+        @addmethod(Seq, method)
+        def stateSeq(pe):
+            ts0 = treeState(pe.left)
+            return ts0 if ts0 != T.Unit else treeState(pe.right)
+
+        @addmethod(Ore, Alt, method)
+        def stateAlt(pe):
+            ts0 = treeState(pe.left)
+            if ts0 != T.Unit: return ts0
+            ts1 = treeState(pe.right)
+            return T.Mut if ts1 == T.Tree else ts1
+
+        @addmethod(Many, Many1, And, method)
+        def stateMany(pe):
+            ts0 = treeState(pe.inner)
+            return T.Mut if ts0 == T.Tree else ts0
+
+        @addmethod(State, method)
+        def state(pe):
+            if pe.func == '@exists' or pe.func == '@match': return T.Unit
+            return treeState(pe.inner)
+
+
+        @addmethod(Ref, method)
+        def stateRef(pe: Ref):
+            memoed = pe.getmemo('ts', T.Unit)
+            if memoed == None:
+                pe.setmemo('ts', T.Unit)
+                memoed = treeState(pe.deref())
+                pe.setmemo('ts', memoed)
+            return memoed
+
+    return pe.treeState()
+
+def checkTree(pe, inside):
+    if not hasattr(LinkAs, 'checkTree'):
+        method = 'checkTree'
+
+        @addmethod(Empty, Char, Any, Range, method)
+        def term(pe, inside):
+            return pe
+
+        @addmethod(And, Not, Many, Many1, Rule, method)
+        def unary(pe, inside):
+            pe.inner = checkTree(pe.inner, inside)
+            return pe
+
+        @addmethod(Seq, Ore, Alt, method)
+        def binary(pe, inside):
+            pe.left = checkTree(pe.left, inside)
+            pe.right = checkTree(pe.right, inside)
+            return pe
+
+        @addmethod(TreeAs, method)
+        def tree(pe, inside):
+            pe.inner = checkTree(pe.inner, TreeAs)
+            return LinkAs('', pe) if inside == TreeAs else pe
+
+        @addmethod(FoldAs, method)
+        def tree(pe, inside):
+            pe.inner = checkTree(pe.inner, TreeAs)
+            return pe
+
+        @addmethod(LinkAs, method)
+        def fold(pe, inside):
+            ts = treeState(pe.inner)
+            if ts != T.Tree:
+                pe.inner = TreeAs('', pe.inner)
+            checkTree(pe.inner, LinkAs)
+            return pe
+
+        @addmethod(State, method)
+        def state(pe, inside):
+            pe.inner = checkTree(pe.inner, inside)
+            return pe
+
+        @addmethod(Ref, method)
+        def ref(pe, inside):
+            ts = treeState(pe)
+            if ts == T.Tree and inside == TreeAs:
+                return LinkAs('', pe)
+            return pe
+
+    return pe.checkTree(inside)
 
 ## Setup
 
@@ -456,7 +607,7 @@ def load_tpeg(g):
     g.BindFold = TreeAs('Fold', (left <= N%'Var' & ':^') & _ & N%'Tag' & (inner <= (N%'Expression __' | N%'Empty')) & N%'ETag')
     g.Var = TreeAs('Name', Range('a-z', '$') & Range('A-Z', 'a-z', '0-9', '_')*0)
 
-    g.Func = TreeAs('Func', N%'$Identifier' & '(' & (N%'$Expression _' & ',' & __)* 0 & N%'$Expression _' & ')')
+    g.Func = TreeAs('Func', N%'$Identifier' & '(' & __ & (N%'$Expression _' & ',' & __)* 0 & N%'$Expression __' & ')')
     g.Ref = TreeAs('Ref', N%'NAME')
     g.NAME = '"' & (ParsingExpression.new(r'\"') | ~Range('\\"\n') & ANY)* 0 & '"' | (~Range(' \t\r\n(,){};<>[|/*+?=^\'`#') & ANY)+0
 
@@ -521,12 +672,11 @@ def load_tpeg(g):
               "[#Source [#Rule name=[#Name 'A'] inner=[#Ref 'a']] [#Rule name=[#Name 'B'] inner=[#Ref 'b']]]")
     g.example("Start", "A = a //hoge\nB = b",
               "[#Source [#Rule name=[#Name 'A'] inner=[#Ref 'a']] [#Rule name=[#Name 'B'] inner=[#Ref 'b']]]")
-
     return g
 
 # Expression loader
 
-def setup_loader(Grammar, pc):
+def setup_loader(Grammar, pgen):
     import pegpy.utils as u
     from pegpy.ast import ParseTreeConv
     class PEGConv(ParseTreeConv):
@@ -610,22 +760,53 @@ def setup_loader(Grammar, pc):
             elif name == '@off' and len(a) > 2:
                 return Off(a[1].asString(), self.conv(a[2]))
             elif name == '@scope' and len(a) > 1:
-                return Scope(self.conv(a[1]))
+                return State(name, self.conv(a[1]))
             elif name == '@symbol' and len(a) > 1:
-                return Symbol(None, self.conv(a[1]))
+                return State(name, self.conv(a[1]))
             elif name == '@match' and len(a) > 1:
-                return Match(None, self.conv(a[1]))
+                return State(name, self.conv(a[1]))
             elif name == '@exists' and len(a) > 1:
-                return Exists(None, self.conv(a[1]))
+                return State(name, self.conv(a[1]))
             elif name == '@equals' and len(a) > 1:
-                return Equals(None, self.conv(a[1]))
+                return State(name, self.conv(a[1]))
             elif name == '@contains' and len(a) > 1:
-                return Equals(None, self.conv(a[1]))
+                return State(name, self.conv(a[1]))
             print('@TODO', name)
             return EMPTY
 
+    def checkRef(pe, consumed: bool, name: str, visited: dict):
+        if isinstance(pe, Seq):
+            pe.left = checkRef(pe.left, consumed, name, visited)
+            if not consumed:
+                consumed = isAlwaysConsumed(pe.left)
+            pe.right = checkRef(pe.right, consumed, name, visited)
+            return pe
+        if isinstance(pe, Ore) or isinstance(pe, Alt):
+            pe.left = checkRef(pe.left, consumed, name, visited)
+            pe.right = checkRef(pe.right, consumed, name, visited)
+            return pe
+        if hasattr(pe, 'inner'):
+            pe.inner = checkRef(pe.inner, consumed, name, visited)
+            return pe
+        if isinstance(pe, Ref):
+            if not consumed and pe.name == name:
+                u.perror(pe.pos3, msg='Left Recursion')
+                return pe
+            if not pe.isNonTerminal():
+                u.perror(pe.pos3, msg='Undefined Name')
+                return Char(pe.name)
+            if pe.name[0].islower(): # inlining
+                return pe.deref()
+            if not pe.name in visited:
+                visited[pe.name] = True
+                checkRef(pe.deref(), consumed, name, visited)
+        return pe
+
+    def checkRule(rule):
+        rule.inner = checkRef(rule.inner, False, rule.name, {})
+
     PEGconv = PEGConv(Ore, Alt, Seq, And, Not, Many, Many1, TreeAs, FoldAs, LinkAs, Ref)
-    pegparser = pc(load_tpeg(Grammar('tpeg')))
+    pegparser = pgen(load_tpeg(Grammar('tpeg')))
 
     def load_grammar(g, path):
         f = u.find_path(path).open()
@@ -633,8 +814,7 @@ def setup_loader(Grammar, pc):
         f.close()
         t = pegparser(data, path)
         if t == 'err':
-            er = t.getpos()
-            print('SyntaxError ({}:{}:{}+{})'.format(er[0],er[2],er[3],er[1]), '\n', er[4], '\n', er[5])
+            u.perror(t.pos3())
         # load
         for stmt in t.asArray():
             if stmt == 'Rule':
@@ -648,6 +828,8 @@ def setup_loader(Grammar, pc):
                 doc = stmt['inner'].asString()
                 for n in stmt['name'].asArray():
                     g.example(n.asString(), doc)
+        g.foreach(checkRule)
+        g.map(lambda pe: checkTree(pe, None))
 
     Grammar.load = load_grammar
 

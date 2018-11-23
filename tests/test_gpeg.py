@@ -24,8 +24,8 @@ def TestGrammar(peg=None):
     peg.example('ManyAny', '123', "[# '123']")
     peg.example('NotAlpha', '123', "[# '1']")
     peg.example('ManyNotAlpha', '123a', "[# '123']")
-    peg.example('AMB_AB', 'ab', "[#Ambiguity [# 'a'] [# 'ab']]")
-    peg.example('AMB_ABB', 'abb', "[#Ambiguity [# 'ab'] [# 'abb']]")
+    peg.example('AMB_AB', 'ab', "[#? [# 'a'] [# 'ab']]")
+    peg.example('AMB_ABB', 'abb', "[#? [# 'ab'] [# 'abb']]")
     peg.example('Str', '"abc"')
     peg.example('Str2', '"abc"')
     return peg
@@ -48,14 +48,24 @@ def AmbGrammar(peg=None):
   return peg
 
 
-def ManyBGrammar(peg=None):
-  if peg == None:
-    peg = Grammar('manyB')
-  peg.S = TreeAs('S', Char('b') & N % '$S' & N % '$S' | N % '$S1')
-  peg.S1 = TreeAs('S\'', Char('b') & N % '$S' | Char('b'))
+def NLPGrammar(peg=None):
+    if peg == None:
+        peg = Grammar('nlp')
+    peg.Assign = TreeAs('Assign', N % '$VARIABLENAME' & Char('を') & N % '$Expression' & Range('とおく', 'とする'))
+    peg.Const = TreeAs('Const', N % '$VARIABLENAME' & Char('は') & N % '$Expression' & Range('である'))
 
-  peg.example('S', 'bbb')
-  return peg
+    peg.Expression = N % 'Product' ^ TreeAs('Infix', N % '$AddSub $Product') * 0
+    peg.Product = N % 'Value' ^ TreeAs('Infix', N % '$MulDiv $Value') * 0
+    peg.Value = N % 'Int' | '(' & N % 'Expression' & ')'
+    peg.Int = TreeAs('Int', Range('0-9') + 0)
+    peg.AddSub = TreeAs('', Range('+-'))
+    peg.MulDiv = TreeAs('', Range('*/%'))
+
+    peg.VARIABLENAME = TreeAs('Variable', Range('A-Z', 'a-z') & Range('A-Z', 'a-z', '0-9') * 0)
+
+    peg.example('Assign', 'Xを1+2*3とおく', "[#Assign [#Variable 'X'] [#Infix [#Int '1'] [# '+'] [#Infix [#Int '2'] [# '*'] [#Int '3']]]]")
+    peg.example('Const', 'Xは5である', "[#Const [#Variable 'X'] [#Int '5']]")
+    return peg
 
 class TestGPEG(unittest.TestCase):
 
@@ -65,18 +75,27 @@ class TestGPEG(unittest.TestCase):
         g.example('Expression,Int', '123', "[#Int '123']")
         g.example('Expression', '1+2*3', "[#Infix left=[#Int '1'] name=[# '+'] right=[#Infix left=[#Int '2'] name=[# '*'] right=[#Int '3']]]")
         self.exTest(g, gnez)
-    
+
     def test_grammar(self):
         g = TestGrammar()
         self.exTest(g, gnez)
-    
+
     def test_amb(self):
         g = AmbGrammar()
         self.exTest(g, gnez)
     
     def test_manyb(self):
         g = Grammar("manyb")
-        g.load('grammar/manyb.gpeg')
+        g.load('manyb.gpeg')
+        self.exTest(g, gnez)
+    
+    def test_nl(self):
+        g = Grammar("nl")
+        g.load('sample.gpeg')
+        self.exTest(g, gnez)
+    
+    def test_nlp(self):
+        g = NLPGrammar()
         self.exTest(g, gnez)
 
 

@@ -1,6 +1,8 @@
 #!/usr/local/bin/python
 import sys, os, errno
 
+# Method
+
 # Source
 
 def bytestr(b):
@@ -32,6 +34,11 @@ def decode_source(inputs, spos, epos):
     if length <= 0: length = 1
     mark = (' ' * remain) + ('^' * length)
     return (bytestr(urn), spos, linenum, remain, bytestr(line), mark)
+
+def perror(pos3, msg='SyntaxError'):
+    if pos3 is not None:
+        er = decode_source(pos3[0], pos3[1], pos3[2])
+        print('{} ({}:{}:{}+{})\n{}\n{}'.format(msg,er[0],er[2],er[3],er[1], er[4], er[5]))
 
 def string_intern():
     d = {}
