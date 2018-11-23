@@ -2,7 +2,7 @@ import numpy as np
 import tensorflow as tf
 from functools import reduce
 from functools import lru_cache
-import canonicaltree as ct
+import pegpy.tbcnn.canonicaltree as ct
 
 
 class Tree2Vec(object):
