@@ -1,5 +1,5 @@
 [INCLUDE=bootstrap]
-Title      : Bootstrap demo document
+Title      : Pegpy
 Theme      : simplex
 Css        : nav-example.css
 Col        { .col-lg-4 }
