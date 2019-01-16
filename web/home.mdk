@@ -10,9 +10,9 @@ Col        { .col-lg-4 }
 ### Pegpy {.text-muted}
 
 * {.active} [Home](#)
-* [Demo](http://rise4fun.com)
-* [Developers](#)
+* [Playground](http://rise4fun.com)
 * [Documents](#)
+* [Publications](#)
 * [GitHub](https://github.com/KuramitsuLab/pegpy)
 {.nav; .nav-justified}
 ~
@@ -25,7 +25,7 @@ Its users can declaratively describe the syntax and then use generated tools to 
 ~
 
 ## Easy to start
-### Get Pegpy via `pip3` command
+### Get Pegpy via `pip3`
 ```
 $ pip3 install git+https://github.com/KuramitsuLab/pegpy.git
 ```
@@ -46,7 +46,7 @@ OK Int => [#Int '123']
 The above example shows pegpy parses a arithmetic expression `1+2*3` with the syntax description `math.tpeg`, and returns a syntax tree shown in the last line.
 
 ### TPEG files
-If you want to parse another text data or source code, change the syntax description designated with `-g` option.
+When you want to parse another text data or source code, change the syntax description designated with `-g` option.
 There are **over 20 kinds** of syntax description available as predefined [tpeg_files](https://github.com/KuramitsuLab/pegpy/tree/master/pegpy/grammar).
 If you cannot find a tpeg file which describe the syntax you'd like, this is the chance to write your tpeg file!
 
@@ -62,6 +62,7 @@ If you want to perform another operation to source code or text data, you can re
 Under development
 {.text-danger}
 
+nezccの概要(どんなことができるの？)
 Donec sed odio dui. Cras justo odio, dapibus ac facilisis in, egestas
 eget quam. Vestibulum id ligula porta felis euismod semper. Fusce
 dapibus, tellus ac cursus commodo, tortor mauris condimentum nibh, ut
@@ -70,7 +71,9 @@ fermentum massa.\
 ~
 
 ~ Col
-### `origami` : Trans-compiler
+### `origami` : Source Code Translator
+
+origamiの概要(どんなことができるの？)
 Donec sed odio dui. Cras justo odio, dapibus ac facilisis in, egestas
 eget quam. Vestibulum id ligula porta felis euismod semper. Fusce
 dapibus, tellus ac cursus commodo, tortor mauris condimentum nibh, ut
@@ -80,10 +83,7 @@ fermentum massa.\
 
 ~ Col
 ### `json` : Printer to JSON
-Donec sed odio dui. Cras justo odio, dapibus ac facilisis in, egestas
-eget quam. Vestibulum id ligula porta felis euismod semper. Fusce
-dapibus, tellus ac cursus commodo, tortor mauris condimentum nibh, ut
-fermentum massa. type here. which is amazing.\
+We provide a printer which formats an input text to a JSON file.\
 [View details &raquo;](#){.btn; .btn-primary; html-role:button}
 ~
 
