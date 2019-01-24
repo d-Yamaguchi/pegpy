@@ -1,39 +1,47 @@
 #!/usr/local/bin/python
+
+# TO AVOID maximum recursion depth exceeded
+import sys
+sys.setrecursionlimit(10000)
+
 import pegpy.rule as pe
 import pegpy.parser as pg
-import unittest as ut
+import pegpy.gparser.base as pg2
+import pegpy.gparser.optimized as pg3
 
 def eval(p, conv = None):
-    pg.setting('eval')
-    return pg.generate_parser(pg.generate(p, 'eval'), conv)
+    return pg.generate2(p, method='eval', conv=conv)
+
+def nez2(p, conv = None):
+    return pg.generate2(p, method='nez', conv=conv)
 
 def nez(p, conv = None):
-    pg.setting('nez')
-    return pg.generate_parser(pg.generate(p, 'nez'), conv)
+    def emit(pe, **option) : return pe.nez(**option)
+    return pg2.generate(p, method='nez', pg=pg3, emit=emit, memo={}, conv=conv)
 
 def dasm(p, conv = None):
-    pg.setting('dasm')
-    return pg.generate_parser(pg.generate(p, 'dasm'), conv)
+    return pg.generate2(p, method='dasm', conv=conv)
 
 ## Grammar
 
 class Grammar(object):
-    __slots__ = ['ns', 'rules', 'rulemap', 'memo', 'examples']
+    __slots__ = ['ns', 'rules', 'rulemap', 'min', 'max', 'memo', 'examples']
 
     def __init__(self, ns = None):
         self.ns = ns
         self.rules = []
         self.rulemap = {}
+        self.min = 1 << 20
+        self.max = 0
         self.memo = {}
         self.examples = []
-
-    def __getitem__(self, item):
-        return self.rulemap[item]
+        if isinstance(ns, str) and ns.find('=') > 0:
+            self.ns = None
+            self.load(ns)
 
     def __setattr__(self, key, value):
         if isinstance(value, pe.ParsingExpression):
             self.add(key, value)
-            #print(key, '=', value)
         else:
             super().__setattr__(key, value)
 
@@ -42,78 +50,59 @@ class Grammar(object):
             return self.rulemap[key]
         return super().__getattr__(key)
 
+    def __contains__(self, item):
+        if item[0].islower() and '.' in item:
+            ns, key = item.split('.')
+            if ns in self.rulemap:
+                g = self.rulemap[ns]
+                if isinstance(g, Grammar):
+                    return key in g
+                return False
+        return item in self.rulemap
+
+    def __getitem__(self, item):
+        if item[0].islower() and '.' in item:
+            ns, key = item.split('.')
+            if ns in self.rulemap:
+                g = self.rulemap[ns]
+                return g[key]
+        return self.rulemap[item]
+
     def namespace(self):
-        return 'g'+id(self) if self.ns is None else self.ns
+        return 'g'+str(id(self)) if self.ns is None else self.ns
 
     def start(self):
         if len(self.rules) > 0: return self.rules[0]
-        return pe.EMPTY
+        return pe.Rule(self, 'undefined', pe.EMPTY)
 
-    def isDefined(self, name):
-        return name in self.rulemap
-
-    def add(self, key: str, x: pe.ParsingExpression):
+    def add(self, key: str, x: pe.ParsingExpression, pos3=None):
         x.setpeg(self)
         if not isinstance(x, pe.Rule):
-            x = pe.Rule(self, key, x)
-        self.rules.append(x)
+            x = pe.Rule(self, key, x, pos3)
+        if not pe.Rule.isInlineName(key):
+            self.rules.append(x)
         self.rulemap[key] = x
 
-    def generate(self, algo = 'eval', conv = None):
-        pg.setting(algo)
-        return pg.generate_parser(pg.generate(self.start().deref(), 'dasm'), conv)
+    def forEachRule(self, f):
+        for rule in self.rules[:]:
+            rule.inner = f(rule)
 
-    def hasmemo(self, key): return key in self.memo
-    def getmemo(self, key): return self.memo[key] if key in self.memo else None
+    def hasmemo(self, key):
+        return key in self.memo
+
+    def getmemo(self, key):
+        return self.memo[key] if key in self.memo else None
+
     def setmemo(self, key, value): self.memo[key] = value
 
     def example(self, prod, input, output = None):
         for name in prod.split(','):
             self.examples.append((name, input, output))
 
-    def dump(self):
-        for r  in self.rules: print(r)
+    def dump(self, out, indent=''):
+        for rule in self.rules: out.println(rule)
 
-    def testAll(self, combinator = nez, unittest = None):
+    def pgen(self, name:str, combinator=nez):
+        return combinator(pe.Ref(name, self))
 
-        p = {}
-
-        if isinstance(unittest, ut.TestCase):
-            for testcase in self.examples:
-                name, input, output = testcase
-                if not name in p:
-                    p[name] = combinator(pe.Ref(name, self))
-                res = p[name](input)
-                t = str(res).replace(" b'", " '")
-                with unittest.subTest(example = name):
-                    if output == None:
-                        unittest.assertNotEqual(res, 'err')
-                    else:
-                        unittest.assertEqual(t, output)
-            return 
-
-        test = 0
-        ok = 0
-        for testcase in self.examples:
-            name, input, output = testcase
-            if not name in p:
-                p[name] = combinator(pe.Ref(name, self))
-            res = p[name](input)
-            t = str(res).replace(" b'", " '")
-            if output == None:
-                if res == 'err':
-                    er = res.getpos()
-                    print('NG {}({}:{}:{}+{})'.format(name, er[0], er[2], er[3], er[1]), '\n', er[4], '\n', er[5])
-                else:
-                    print('OK', name, '=>', t)
-            else:
-                test += 1
-                if t == output:
-                    print('OK', name, input)
-                    ok += 1
-                else:
-                    print('NG', name, input, output, '!=', t)
-        if test > 0:
-            print('OK', ok, 'FAIL', test - ok, ok / test * 100.0, '%')
-
-pe.setup_loader(Grammar, nez)
+pe.setup_loader(Grammar, eval)

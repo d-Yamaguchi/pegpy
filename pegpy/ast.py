@@ -1,13 +1,12 @@
-## Source
-
 import pegpy.utils as u
 
 class SourcePosition(object):
     def __init__(self, inputs, spos, epos):
-        self.pos = (inputs, spos, epos)
+        self.pos3 = (inputs, spos, epos)
 
-    def getpos(self):
+    def err(self):
         return u.decode_source(self.pos[0], self.pos[1], self.pos[2])
+
 
 class ParseTree(object):
     __slots__ = ['tag', 'inputs', 'spos', 'epos', 'child']
@@ -32,17 +31,8 @@ class ParseTree(object):
 
     def __getitem__(self, label):
         cur = self.child
-        '''
-        if isinstance(label, int):
-            c = 0
-            while (cur is not None):
-                if c == label: return cur.child
-                c += 1
-                cur = cur.prev
-        else :
-        '''
         while(cur is not None):
-            if label == cur.tag :return cur.child
+            if label == cur.tag: return cur.child
             cur = cur.prev
         return None
 
@@ -83,6 +73,26 @@ class ParseTree(object):
                 sb.append(str(s))
         sb.append("]")
 
+    def dump(self, w, indent=''):
+        if self.child is None:
+            s = self.inputs[self.spos:self.epos]
+            w.println(w.bold("[#" + self.tag), repr(s) + w.bold("]"))
+            return
+        w.println(w.bold("[#" + self.tag))
+        indent2 = '  ' + indent
+        for tag, child in self:
+            w.print(indent2 if tag is '' else indent2 + tag + '=')
+            child.dump(w, indent2)
+        w.println(indent + w.bold("]"))
+
+    def get(self, label: str, default = None, conv = None):
+        cur = self.child
+        while(cur is not None):
+            if label == cur.tag:
+                return cur.child if conv is None else conv(cur.child)
+            cur = cur.prev
+        return default
+
     def isString(self):
         return self.child is None
 
@@ -110,18 +120,6 @@ class ParseTree(object):
 
     def __iter__(self):
         return TreeLinkIter(self.child)
-
-    '''
-    def fields(self):
-        a = []
-        cur = self.child
-        while cur is not None:
-            if cur.child is not None:
-                a.append((cur.tag, cur.child))
-            cur = cur.prev
-        a.reverse()
-        return a
-    '''
 
     def asJSON(self, tag = '__class__', hook = None):
         listCount = 0
@@ -183,21 +181,22 @@ class TreeLinkIter(object):
 
 class ParseTreeConv(object):
     def __init__(self, *args):
-        self.dict = {}
-        for c in args: self.dict[c.__name__] = c
+        self.classDict = {}
+        for c in args:
+            self.classDict[c.__name__] = c
 
     def setpos(self, s, t):
-        if isinstance(s, SourcePosition):
-            s.pos = (t.inputs, t.spos, t.epos)
+        if hasattr(s, 'pos3'):
+            s.pos3 = t.pos3()
         return s
 
-    def conv(self, t: ParseTree):
+    def conv(self, t: ParseTree, out = u.STDOUT):
         tag = t.tag
         if hasattr(self, tag):
             f = getattr(self, tag)
-            return self.setpos(f(t), t)
-        if tag in self.dict:
-            c = self.dict[tag]
+            return self.setpos(f(t, out), t)
+        if tag in self.classDict:
+            c = self.classDict[tag]
             if t.isString():
                 return self.setpos(c(t.asString()),t)
             elif t.isArray():
@@ -207,10 +206,10 @@ class ParseTreeConv(object):
                 for name in c.__slots__:
                     sub = t[name]
                     if sub is None:
-                        print ('TODO', name, c)
+                        out.verbose('@TODO', name, c)
                         continue
                     d[name] = self.conv(sub)
                 return self.setpos(c(**d), t)
-        print('@TODO', tag)
+        out.verbose('@TODO', tag)
         return t
 
